@@ -1,0 +1,5 @@
+# CEL: the CEL file name
+# name: the name of the sample. Will also be used to label the plots.
+# group: how the samples can be grouped. This will also be used in limma's design matrix.
+# description: some sample description. Obviously, depending on the analysis, additional columns should be added.
+CEL	name	group	description

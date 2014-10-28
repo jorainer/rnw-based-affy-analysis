@@ -1,0 +1,312 @@
+%% Simple differential expression analysis.
+%% Julien Lelong, Daniel Bindreither, Johannes Rainer
+
+<<results=hide,echo=FALSE>>=
+
+options( stringsAsFactors=FALSE )
+options( useFancyQuotes=FALSE )
+
+## path where images should be saved to
+IMAGE_PATH <- paste( "images/diffexp/" , sep="" )
+if( !file.exists( IMAGE_PATH ) ){ dir.create( IMAGE_PATH, recursive=TRUE ) }
+RDATA_PATH <- paste( "data/RData/" , sep="" )
+if( !file.exists( RDATA_PATH ) ){ dir.create( RDATA_PATH, recursive=TRUE ) }
+XLS_PATH <- paste( "data/xls/" , sep="" )
+if( !file.exists( XLS_PATH ) ){ dir.create( XLS_PATH, recursive=TRUE ) }
+
+## these are required to load the correct CDF package for the microarray!!!
+## note: for Mouse Gene ST 1.0 use mogene10stv1 below.
+ENSEMBL_VERSION <- "75"
+CDFNAME<- paste( "hugene10stv1", sub( ENSEMBL_VERSION, pattern="_", replacement="" ), sep="" )
+## annotation file and host:
+ANNOT_HOST <- paste( "http://dmp.i-med.ac.at/cdf/", ENSEMBL_VERSION, "/", sep="" )
+ANNOT_FILE <- "annot_hugene_transcriptlevel_"   ## change to annot_mogene_transcriptlevel_ for Mouse Gene ST microarrays!
+
+
+PS <- 6
+
+set.seed( 18011977 )
+
+m.cut <- 1
+p.cut <- 0.01
+
+@
+
+
+\SweaveOpts{eps=FALSE}
+\SweaveOpts{keep.source=FALSE}
+
+
+\chapter{Identification of significantly differentially expressed genes}
+
+In this chapter we are identifying differentially expressed genes between the sample groups. The moderated t-test \cite{Smyth:2004vq} is used as the test statistic to assess the significance of differential expression of a gene between two sample groups. Raw p-values derived from these tests are adjusted for multiple hypothesis testing employing the method proposed by Benjamini and Hochberg \cite{Benjamini:1995ws} for a strong control of the false discovery rate (FDR).
+
+\begin{scriptsize}
+<<results=hide>>=
+
+library( Biobase )
+library( multtest )
+library( limma )
+library( RColorBrewer )
+library( xtable )
+library( gplots )
+library( WriteXLS )
+library(  )
+
+load( paste0( RDATA_PATH, "Chips.norm.RData" ) )
+## NOTE: that works ONLY for 3' arrays:
+annot <- getAnnotation( Chips.norm )
+## for Gene ST microarrays use instead:
+##load.from.http( paste0( ANNOT_HOST, ANNOT_FILE,
+##                       ENSEMBL_VERSION, ".Rdata" ) )
+
+## define the colors
+Colors.group <- brewer.pal( max( c( length( unique( Chips.norm$group ) ), 3 ) ) , "Set1" )[ 1:length( unique( Chips.norm$group ) ) ]
+names( Colors.group ) <- unique( Chips.norm$group )
+
+
+@
+\end{scriptsize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Differentially expression analysis
+
+Here we use the moderated t-test \cite{Smyth:2004to} from Bioconductor's \texttt{limma} package to determine significantly differentially expressed genes. The moderated t-test, specifically developed for experiments with a small number of replicates, borrows variance information across genes in a microarray experiment and thus estimates variance across a limited number of replicates more robustly than e.g. a Student's t-test.
+
+Below we define the \textit{design matrix} for the experiment and fit the thus defined linear model to the data. Subsequently we define and apply the contrasts of interest and calculate the p-values for differential expression.
+
+\begin{scriptsize}
+<<results=hide>>=
+
+## NOTE: this chunk should be adapted to the analysis setting!!!
+stop( "MAKE SURE YOU DID DEFINE THE DESIGN MATRIX AND THE CONTRAST BASED ON THE PRESENT ANALYSIS SETTINGS!\nyou can delete me once you've done that..." )
+
+## define the factor we will use for differential expression
+group <- factor( Chips.norm$group )
+
+## defining the model
+design <- model.matrix( ~ 0 + group )
+fit <- lmFit( exprs( Chips.norm ), design=design )
+## define contrast
+contrast.matrix <- makeContrasts( diff.group=group1-group0,
+                                 levels=design )
+fit <- contrasts.fit( fit, contrast.matrix )
+fit <- eBayes( fit )
+
+@
+\end{scriptsize}
+
+Next we are adjusting the p-values for multiple hypothesis testing using the method from Benjamini and Hochberg \cite{Benjamini:1995ws} for a strong control of the false discovery rate (FDR).
+
+
+<<results=hide>>=
+
+AdjP <- matrix( ncol=ncol( fit$p.value ), nrow=nrow( fit$p.value ) )
+dimnames( AdjP ) <- dimnames( fit$p.value )
+for( i in 1:ncol( AdjP ) ){
+    BH <- mt.rawp2adjp( fit$p.value[ , i ], proc="BH" )
+    BH <- BH$adj[ order( BH$index ), ]
+    AdjP[ , i ] <- BH[ , "BH" ]
+}
+
+@
+
+Compiling the results table.
+
+\begin{scriptsize}
+<<results=hide>>=
+
+## extract expression values
+E <- exprs( Chips.norm )
+colnames( E ) <- Chips.norm$name
+## generate a matrix indicating the significant probe sets.
+Sigs <- lapply( as.list( colnames( fit$p.value ) ), FUN=function( x ){
+    AdjP[ , x ] < p.cut &
+        abs( fit$coefficients[ , x ] ) > m.cut
+} )
+Sigs <- do.call( "cbind", Sigs )
+dimnames( Sigs ) <- dimnames( fit$p.value )
+## generate the results table
+Results <- cbind(
+    annot,
+    BHp=AdjP[,],
+    rawp=fit$p.value[,],
+    M=fit$coefficients[,],
+    E,
+    significant=Sigs[,]
+)
+## saving the results
+WriteXLS( "Results", ExcelFileName=paste0( XLS_PATH, "Results.xls" ) )
+save( Results, file=paste0( RDATA_PATH, "Results.RData" ),
+     compress="xz" )
+
+@
+\end{scriptsize}
+
+Next we are plotting the distribution of the raw and adjusted p-values.
+
+<<results=hide,echo=FALSE>>=
+
+WIDTH <- 16
+WHAT <- colnames( fit$p.value )
+WHAT.labels <- WHAT
+HEIGHT <- 4 * length( WHAT )
+## prepend a "." if we do have nore than one contrast, or use "" if there is only one.
+if( length( WHAT )==1 ){
+    WHAT <- ""
+}else{
+    WHAT <- paste0( ".", WHAT )
+}
+names( WHAT.labels ) <- WHAT
+FILE <- paste( IMAGE_PATH, "diffexp-pvalue-hist.png", sep="" )
+png( file=FILE, width=14, height=7, units="cm", res=600, pointsize=PS )
+par( mfrow=c( length( WHAT ), 2 ), cex.lab=1.5, cex.main=2, cex.axis=1.5 )
+for( i in 1:length( WHAT ) ){
+    ## rawp
+    hist( Results[ , paste0( "rawp", WHAT[ i ] ) ], breaks=512, xlim=c( 0, 1 ), main=WHAT.labels[ i ], xlab="raw p-value", ylim=c( 0, 500 ) )
+    ## adjusted
+    hist( Results[ , paste0( "BHp", WHAT[ i ] ) ], breaks=512, xlim=c( 0, 1 ), main=WHAT.labels[ i ], xlab="adjusted p-value", ylim=c( 0, 500 ) )
+    abline( v=p.cut, lty=2, col=paste( brewer.pal( 3, "Set1" )[ 2 ], "80", sep="" ) )
+}
+dev.off()
+
+@
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\Sexpr{WIDTH}cm]{\Sexpr{FILE}}
+  \caption{Distribution of raw p-values (left) and p-values adjusted for multiple hypothesis testing (righ) for the comparison(s).}
+  \label{fig:histo.pvals}
+\end{figure}
+
+<<results=tex,echo=FALSE>>=
+Mat <- matrix( ncol=length( WHAT ), nrow=3 )
+colnames( Mat ) <- WHAT.labels
+rownames( Mat ) <- c( paste( "|M| >", m.cut ), paste( "BHp <", p.cut ), paste( "|M| >", m.cut, "&", "BHp <", p.cut ) )
+for( i in 1:length( WHAT ) ){
+    Mat[ 1, i ] <- sum( abs( Results[ , paste0( "M", WHAT[ i ] ) ] ) > m.cut )
+    Mat[ 2, i ] <- sum( Results[ , paste0( "BHp", WHAT[ i ] ) ] < p.cut )
+    Mat[ 3, i ] <- sum( abs( Results[ , paste0( "M", WHAT[ i ] ) ] ) > m.cut & Results[ , paste0( "BHp", WHAT[ i ] ) ] < p.cut )
+}
+print( xtable( Mat, caption="Number of probe sets/genes passing various cut-offs for differential expression." ), tabular.environment="longtable", size="small", table.placement="H", floating=FALSE )
+
+@
+
+
+Next we plot a volcano plot representing the results from the differential expression analysis and display a table with the most significantly differentially expressed genes.
+
+
+<<plotvolcano,results=hide,echo=FALSE>>=
+
+## change that if you want to plot the volcano for a different contrast!
+WHICH <- 1
+##
+AndNow <- WHAT[ WHICH ]
+WIDTH <- 12
+HEIGHT <- 12
+FILE <- paste( IMAGE_PATH, "diffexp-volcano.png", sep="" )
+png( file=FILE, width=WIDTH, height=HEIGHT, units="cm", res=600, pointsize=PS )
+
+X <- Results[ , paste0( "M", AndNow ) ]
+Y <- -log10( Results[ , paste0( "BHp", AndNow ) ] )
+XLIM <- range( X, na.rm=TRUE )
+YLIM <- range( Y, na.rm=TRUE )
+YLIM[ 2 ] <- max( Y, -log10( p.cut )+0.2, na.rm=TRUE )
+Cols <- paste0( brewer.pal( 9, "Greys" )[ 8 ], "80" )
+plot( X, Y, bty="n", xlab="M", ylab=expression(-log[10](p[raw]-value)), main=WHAT.labels[ WHICH ], pch=16, cex=1.3, col=Cols, ylim=YLIM, xlim=XLIM, las=2, xaxt="n" )
+axis( side=1 )
+Yticks <- pretty( YLIM )
+Yticks <- Yticks[ Yticks[ 1:(length( Yticks )-1) ] ]
+Ylabs <- 100*( 10^-Yticks )
+axis( side=4, at=Yticks, label=format( Ylabs,  scientific=TRUE ), cex=par( "cex.axis" ), las=2 )
+mtext( side=4, line=3, text="% FDR", cex=par( "cex.lab" ) )
+## highlight the significant region.
+rect( xleft=min( XLIM )-1, xright=-m.cut, ybottom=-log10( p.cut ), ytop=max( YLIM )+1, col=paste( brewer.pal( 4, "Set1" )[ 2 ], "10", sep="" ), border=NA )
+rect( xleft=m.cut, xright=max( XLIM )+1, ybottom=-log10( p.cut ), ytop=max( YLIM )+1, col=paste( brewer.pal( 4, "Set1" )[ 2 ], "10", sep="" ), border=NA )
+abline( v=c( -m.cut, m.cut ), col=paste( brewer.pal( 3, "Set1" )[ 2 ], "80", sep="" ), lty=2 )
+abline( h=-log10( p.cut ), col=paste( brewer.pal( 3, "Set1" )[ 2 ], "80", sep="" ), lty=2 )
+## significant genes
+sig <- Results[ Results[ , paste0( "significant", AndNow ) ], ]
+if( nrow( sig ) > 0 ){
+    sig <- sig[ order( sig[ , paste0( "rawp", AndNow ) ] ), , drop=FALSE ]
+    points( sig[ , paste0( "M", AndNow ) ], -log10( sig[ , paste0( "BHp", AndNow ) ] ), col=paste0( brewer.pal( 3, "Set1" )[ 2 ], "80" ), pch=16 )
+    ## text for top xx
+    topX <- 10
+    text( sig[ 1:topX, paste0( "M", AndNow ) ], -log10( sig[ 1:topX, paste0( "BHp", AndNow ) ] ), labels=sig[ 1:topX, "symbol" ], col=paste0( brewer.pal( 3, "Set1" )[ 2 ], "80" ), cex=0.75, pos=3 )
+}
+
+dev.off()
+
+@
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\Sexpr{WIDTH}cm]{\Sexpr{FILE}}
+  \caption{Volcano plot representing the differential gene expression between the compared sample groups. The blue dashed horizontal and vertical lines represent the cut-off criteria for significant differential expression. Significantly differentially expressed genes are indicated in blue color.}
+  \label{fig:volcano}
+\end{figure}
+
+!!! DESCRIBE PLOT ABOVE!!!
+
+
+And the table of differentially expressed genes.
+
+<<resultsTable,results=tex,echo=FALSE>>=
+
+sig <- Results[ , paste0( "significant", AndNow ) ]
+if( any( sig ) ){
+    T <- Results[ sig, c( "symbol", paste0( "BHp", AndNow ), paste0( "M", AndNow ) ) ]
+    ##colnames( T ) <- gsub( colnames( T ), pattern=".ZnRvsCtl", replacement="", fixed=TRUE )
+    T <- T[ order( abs( T[ , paste0( "M", AndNow ) ] ), decreasing=TRUE ), ]
+    T <- T[ 1:min( c( nrow( T ), 50 ) ), ]
+    ##T <- cbind( T, E[ rownames( T ), ] )
+    suppressWarnings(
+        print( xtable( T, caption=paste0( "Significantly differentially expressed genes between sample groups defined by the factor ", gsub( WHAT.labels[ WHICH ], pattern="_", replacement=" " ),". Genes are ordered by their magnitude of differential expression, table is truncated after 50 rows.") ), tabular.environment="longtable", size="scriptsize", table.placement="H", floating=FALSE )
+    )
+}else{
+    T <- Results[ order( Results[ , paste0( "rawp", AndNow ) ] ), c( "symbol", paste0( "BHp", AndNow ), paste0( "M", AndNow ) ) ][ 1:20, ]
+    suppressWarnings(
+        print( xtable( T, caption=paste0( "Top 50 probe sets with the smallest p-value for significance of differential expression between sample groups defined by the factor ", gsub( WHAT.labels[ WHICH ], pattern="_", replacement=" " ), ". Note: no probe set was found significantly differentially expressed!" ) ), tabular.environment="longtable", size="scriptsize", table.placement="H", floating=FALSE )
+    )
+}
+ps <- rownames( T )
+
+@
+
+Creating a heatmap on the differentially expressed probe sets.
+
+<<results=hide,echo=FALSE>>=
+
+WIDTH <- 12
+HEIGHT <- 12
+FILE <- paste( IMAGE_PATH, "diffexp-heatmap.png", sep="" )
+png( file=FILE, width=WIDTH, height=HEIGHT, units="cm", res=600, pointsize=PS )
+
+hmCol <- rev(redgreen(100))[-seq(45, 55)]   ## define the colors for the heatmap
+## center the expression
+E.centered <- exprs( Chips.norm )[ ps, ] - rowMeans( exprs( Chips.norm )[ ps, ], na.rm = TRUE )
+rownames( E.centered ) <- paste( Results[ ps, "symbol" ], " [", ps, "]", sep="" )
+colnames( E.centered ) <- Chips.norm$name
+
+CSC <- Colors.group[ Chips.norm$group ]
+heatmap.2( E.centered, scale="none", col=hmCol, trace="none",  symbreaks=TRUE, ColSideColors=CSC, keysize=2 )
+dev.off()
+
+@
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\Sexpr{WIDTH}cm]{\Sexpr{FILE}}
+  \caption{Heatmap for probe sets from the table above.}
+  \label{fig:heatmap}
+\end{figure}
+
+
+\noindent\rule{\linewidth}{1pt}
+R version information:
+
+\begin{scriptsize}
+<<results=tex,echo=FALSE>>=
+toLatex( sessionInfo() )
+
+@
+\end{scriptsize}
+
+

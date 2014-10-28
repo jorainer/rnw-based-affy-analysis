@@ -1,0 +1,281 @@
+%% Basic template for Affymetrix microarray analysis, rawdata quality control and preprocessing, for 3' microarrays
+%% Julien Lelong, Daniel Bindreither and Johannes Rainer.
+
+<<results=hide,echo=FALSE>>=
+
+## set up.
+options( stringsAsFactors=FALSE )
+options( useFancyQuotes=FALSE )
+
+## path where images should be saved to
+IMAGE_PATH <- paste( "images/rawdata/" , sep="" )
+if( !file.exists( IMAGE_PATH ) ){ dir.create( IMAGE_PATH, recursive=TRUE ) }
+RDATA_PATH <- paste( "data/RData/" , sep="" )
+if( !file.exists( RDATA_PATH ) ){ dir.create( RDATA_PATH, recursive=TRUE ) }
+
+PS <- 6
+
+set.seed( 18011977 )
+
+
+@
+
+\SweaveOpts{eps=FALSE}
+\SweaveOpts{keep.source=FALSE}
+
+\chapter{Raw data, quality control and data preprocessing}\label{chapter:rawdata}
+
+In the first Section (\ref{section:rawdata}) of this chapter we are loading the raw microarray data and are performing quality controls of the raw data signals. After that we perform the pre-processing of the microarrays in Section \ref{section:preprocessing} using the GCRMA method \cite{Wu:2004whb}. The whole analysis is performed in R employing software packages from the Bioconductor project \cite{Gentleman:2004ju}.
+
+Loading all required packages.
+
+\begin{scriptsize}
+<<results=hide>>=
+# required packages.
+library( Biobase )
+library( affy )
+library( xtable )
+library( affyPLM )
+library( gcrma )
+library( RColorBrewer )
+library( unsoRted )
+library( WriteXLS )
+
+@
+\end{scriptsize}
+
+\section{Raw data and quality assessment}\label{section:rawdata}
+
+Loading the raw data from the CEL files (raw signal intensities of each microarray are stored in one CEL file).
+
+\begin{scriptsize}
+<<results=hide>>=
+# get the raw data affybatch
+pd <- read.AnnotatedDataFrame( "data/txt/phenodata.txt" )
+Chips.raw <- ReadAffy( filenames=paste( "data/CEL/", sampleNames( pd ), sep="" ), phenoData=pd )
+## defining the color for the different group(s).
+Colors.group <- brewer.pal( max( c( length( unique( Chips.raw$group ) ), 3 ) ) , "Set1" )[ 1:length( unique( Chips.raw$group ) ) ]
+names( Colors.group ) <- unique( Chips.raw$group )
+
+@
+\end{scriptsize}
+
+The microarrays and corresponding samples are listed below.
+
+<<results=tex, echo=FALSE>>=
+
+T <- cbind( cel_file=sampleNames( Chips.raw ), name=Chips.raw$name, group=Chips.raw$groups )
+rownames( T ) <- 1:nrow( T )
+T <- xtable( T, caption="CEL files and corresponding samples." )
+print(T, table.placement="H", size="small" )
+
+@
+
+Quality controls of the raw data are based on comparisons of the signal distributions of the individual microarrays. Basic quality controls include density plots and boxplots comparing the raw signals that should, ideally, be similar between all microarrays within an experiment. Any differences between raw signals will be adjusted by the normalization step of the microarray data pre-processing.
+
+
+<<results=hide, echo=FALSE>>=
+
+WIDTH <- 16
+FILE <- paste( IMAGE_PATH, "rawdata-density.png", sep="" )
+png( file=FILE, width=WIDTH, height=8, units="cm", res=600, pointsize=PS )
+par( cex.axis=1.5, cex.lab=1.5, mfrow=c( 1, 2 ) )
+plotDensity( log2( pm( Chips.raw ) ), lty=1, lwd=2, xlab=expression(log[2]~raw~intensity), col=paste0( Colors.group[ Chips.raw$group ], "80" ), main="PM probes" )
+plotDensity( log2( mm( Chips.raw ) ), lty=1, lwd=2, xlab=expression(log[2]~raw~intensity), col=paste0( Colors.group[ Chips.raw$group ], "80" ), main="MM probes" )
+legend( "topright", col=Colors.group, legend=names( Colors.group ), lty=1, lwd=2 )
+dev.off()
+
+@
+
+\begin{figure}[H]
+\begin{center}
+\includegraphics[width=\Sexpr{WIDTH}cm]{\Sexpr{FILE}}
+\caption{Raw intensity distribution for all microarrays in the experiment (each line represents one microarray). Shown are signal distribution of perfect match (left) and mismatch probes (right).}
+\label{fig:rawdata.density}
+\end{center}
+\end{figure}
+
+<<results=hide, echo=FALSE>>=
+
+WIDTH <- 16
+FILE <- paste( IMAGE_PATH, "rawdata-boxplot.png", sep="" )
+png( file=FILE, width=WIDTH, height=8, units="cm", res=600, pointsize=PS )
+par( mar=c( 8, 4.5, 2, 1 ), cex.lab=1.5, cex.axis=1.5 )
+boxplot( log2( pm( Chips.raw ) ), main="PM probes", xaxt="n", ylab=expression(log[2]~expression), col=Colors.group[ Chips.raw$group ], ylim=c( 5, 16 ), range=0 )
+axis( side=1, labels=Chips.raw$name, at=1:length( Chips.raw$name ), las=2 )
+dev.off()
+
+@
+
+\begin{figure}[H]
+\begin{center}
+\includegraphics[width=\Sexpr{WIDTH}cm]{\Sexpr{FILE}}
+\caption{Boxplots representing the raw signal distribution per microarray.}
+\label{fig:rawdata.boxplot}
+\end{center}
+\end{figure}
+
+!!!SOME DESCRIPTION OF THE PLOTS ABOVE.!!!
+
+
+
+\section{Microarray data pre-processing}\label{section:preprocessing}
+
+
+Next we are employing the GCRMA \cite{Wu:2004whb} algorithm to perform the pre-processing of the raw microarray data. Some notes to this type of pre-processing: GCRMA performs, in addition to the optical background adjustment, also an adjustment for potential non-specific binding based on the sequence of the individual probes and signal measured by background probes (i.e. probes that are not complementary to any known mRNA). Subsequently, the data is normalized using the quantiles algorithm and the individual probe intensities within a probe set are summarized to the probe set's expression value. For the summarization we employ a robust regression method provided by Bioconductor's \texttt{affyPLM} package.
+
+
+\begin{scriptsize}
+<<results=hide>>=
+
+Chips.bgadj <- bg.adjust.gcrma( Chips.raw, fast=FALSE, GSB.adjust=FALSE )
+PLM <- fitPLM( Chips.bgadj, background=FALSE )
+Chips.norm <- PLMset2exprSet( PLM )
+save( Chips.norm, file=paste0( RDATA_PATH, "Chips.norm.RData" ) )
+
+@
+\end{scriptsize}
+
+Next we plot the signal distribution after pre-processing.
+
+<<results=hide, echo=FALSE>>=
+
+WIDTH <- 16
+FILE <- paste( IMAGE_PATH, "preprocessed-denstiy.png", sep="" )
+png( file=FILE, width=WIDTH, height=8, units="cm", res=600, pointsize=PS )
+par( mar=c( 4.5, 4.5, 2, 1 ), cex.lab=1.5, cex.axis=1.5 )
+plotDensity( exprs( Chips.norm ), lwd=2, lty=1, col=Colors.group[ Chips.norm$group ], main="Pre-processed signal", xlab=expression(log[2]~expression) )
+dev.off()
+
+@
+
+\begin{figure}[H]
+\begin{center}
+\includegraphics[width=\Sexpr{WIDTH}cm]{\Sexpr{FILE}}
+\caption{Signal distribution for all microarrays after pre-processing.}
+\label{fig:preprocessed.density}
+\end{center}
+\end{figure}
+
+<<results=hide, echo=FALSE>>=
+
+WIDTH <- 10
+FILE <- paste( IMAGE_PATH, "preprocessed-boxplot.png", sep="" )
+png( file=FILE, width=WIDTH, height=8, units="cm", res=600, pointsize=PS )
+
+par( mar=c( 8, 4.5, 2, 1 ), cex.lab=1.5, cex.axis=1.5 )
+boxplot( exprs( Chips.norm ), xaxt="n", ylab=expression(log[2]~expression), col=Colors.group[ Chips.raw$group ], range=0 )
+axis( side=1, labels=Chips.raw$name, at=1:length( Chips.raw$name ), las=2 )
+dev.off()
+
+@
+
+\begin{figure}[H]
+\begin{center}
+\includegraphics[width=\Sexpr{WIDTH}cm]{\Sexpr{FILE}}
+\caption{Boxplots representing the preprocessed signal distribution per microarray.}
+\label{fig:preprocessed.boxplot}
+\end{center}
+\end{figure}
+
+
+!!!SOME DESCRIPTION OF THE PLOTS ABOVE.!!!
+
+In addition we create an additional quality control plot, a \textit{NUSE plot}, which allows to identify problematic microarrays in an experiment by evaluating the probe-residuals from the summarization step of the pre-processing.
+
+<<results=hide, echo=FALSE>>=
+
+WIDTH <- 16
+FILE.NUSE <- paste( IMAGE_PATH, "preprocessed-NUSE.png", sep="" )
+png( file=FILE.NUSE, width=WIDTH, height=8, units="cm", res=600, pointsize=PS )
+par( cex.axis=1.5, cex.lab=1.5, oma=c( 2, 0, 0, 0 ) )
+NUSE( PLM, col=Colors.group[ Chips.norm$group ] )
+axis(1, at=1:length( Chips.raw$name ), labels=Chips.raw$name , cex.axis=0.75, las=2 )
+dev.off()
+
+@
+
+\begin{figure}[H]
+\begin{center}
+\includegraphics[width=\Sexpr{WIDTH}cm]{\Sexpr{FILE.NUSE}}
+\caption{NUSE plot.}
+\label{fig:rawdata.NUSE}
+\end{center}
+\end{figure}
+
+
+Affymetrix probe sets are assigned to genes using the appropriate annotation packages provided by the Bioconductor project (i.e. annotation packages for the Affymetrix \Sexpr{Chips.raw@annotation} GeneChip). This annotation is saved, together with the expression intensties measured in the individual microarrays to the (tabulator delimited text file) \texttt{ExpressionValues.txt}.
+
+
+
+<<results=hide,echo=FALSE>>=
+
+## plotting false color images...
+for( i in 1:length( Chips.raw$name ) ){
+    FILE <- paste( IMAGE_PATH, "pseudoimage-", i, "-", Chips.raw$name[ i ], ".png", sep="" )
+    png( file=FILE, width=8, height=8, units="cm", res=600, pointsize=PS )
+    image( PLM, which=i )
+    dev.off()
+}
+
+
+@
+
+
+At last we are performing a principal component analysis (PCA) to group the samples based on their gene expression profile.
+
+\begin{scriptsize}
+<<results=hide>>=
+
+pc <- prcomp( t( exprs( Chips.norm ) ), scale=FALSE, center=TRUE )
+
+@
+\end{scriptsize}
+
+
+<<results=hide,echo=FALSE>>=
+
+WIDTH <- 16
+FILE <- paste( IMAGE_PATH, "preprocessed-PCA.png", sep="" )
+png( file=FILE, width=WIDTH, height=WIDTH/2, units="cm", res=600, pointsize=5 )
+par( mfrow=c( 1, 2 ), cex.axis=1.5, cex.lab=1.5 )
+## pc1 vs 2
+plot( pc$x[ , 1 ], pc$x[ ,2 ], xlab="PC1", ylab="PC2", pch=NA, main="" )
+abline( h=0, v=0, col="grey", lty=3 )
+text( pc$x[ , 1 ], pc$x[ ,2 ], label=Chips.norm$name, col=paste0( Colors.group[ Chips.norm$group ], "80" ), cex=1 )
+## pc3 vs 4
+plot( pc$x[ , 3 ], pc$x[ ,4 ], xlab="PC3", ylab="PC4", pch=NA, main="" )
+abline( h=0, v=0, col="grey", lty=3 )
+text( pc$x[ , 3 ], pc$x[ ,4 ], label=Chips.norm$name, col=paste0( Colors.group[ Chips.norm$group ], "80" ), cex=1 )
+dev.off()
+
+
+@
+
+\begin{figure}[H]
+\begin{center}
+\includegraphics[width=\Sexpr{WIDTH}cm]{\Sexpr{FILE}}
+\caption{PCA analysis of the preprocessed data. PC1 and PC2 (left) and PC3 against PC4 (right).}
+\label{fig:rawdata.PCA}
+\end{center}
+\end{figure}
+
+!!!DESCRIPTION OF THE FIGURE ABOVE!!!
+
+
+\noindent\rule{\linewidth}{1pt}
+R version information:
+
+\begin{scriptsize}
+<<results=tex,echo=FALSE>>=
+
+date()
+toLatex( sessionInfo() )
+
+@
+\end{scriptsize}
+
+
+
+
+

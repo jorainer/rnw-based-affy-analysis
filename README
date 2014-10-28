@@ -1,0 +1,19 @@
+* Requirements: a recent R with Bioconductor installed. Additional packages can be 
+  installed with the shell script in source/shell/install_packages.sh. Note that for
+  Gene ST microarrays it is also required to install the appropriate CDF and probe 
+  packages (from http://bioinfo.i-med.ac.at).
+* Rename folder and "MAIN-affymetrix-analysis.tex" according to the project.
+* Define a phenodata file (e.g. phenodata.txt) and put it in data/txt. This file should
+  list all microarrays of the experiment and define the groups. Required/suggested columns
+  are: CEL, name, group.
+* Modify the rawdata-preprocessing.Rnw according to the setup. Note: this file works only
+  for the "older" 3' microarrays (e.g. hgu133plus2). To analyze newer generation microarrays
+  (i.e. gene ST microarrays), use the rawdata-preprocessing-gene-st.Rnw. In the latter case
+  CDF and probe packages have to be installed for the microarray from http://bioinfo.i-med.ac.at.
+* Differential expression analysis is defined in diffexp.Rnw.
+
+* The Rnw and the basic set up of this type of analysis was defined and set-up by:
+  - Julien Lelong
+  - Daniel Bindreither
+  - Johannes Rainer
+  

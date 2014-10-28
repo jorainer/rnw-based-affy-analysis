@@ -1,0 +1,116 @@
+\documentclass[a4paper,10pt,american]{report}
+
+
+%\usepackage{amsmath,pstricks,fullpage}
+%\usepackage{fullpage}
+\usepackage{hyperref}
+\usepackage{Sweave} % from madb and Manny
+%\usepackage{/usr/share/R/share/texmf/Sweave} %local
+\usepackage{caption}
+\usepackage{times}
+\usepackage[latin1]{inputenc}
+\usepackage{babel}
+\usepackage{graphicx}
+\usepackage{float}                              % Zum Plazieren der Figures
+\usepackage{epsfig}
+\usepackage{setspace}
+%\usepackage{minipage}
+\usepackage{fancyhdr}
+\usepackage{longtable}
+
+% table row highlights
+\usepackage[table]{xcolor}
+
+
+\usepackage{wrapfig}
+%page main layout
+\normalsize
+\setlength{\hoffset}{-2.5cm}
+\setlength{\voffset}{-1.5cm}
+\setlength{\textwidth}{17.0cm}
+\setlength{\textheight}{22cm}
+
+\headwidth=\textwidth
+\pagestyle{fancy}
+\renewcommand{\chaptermark}[1]{\markboth{\thechapter. #1}{}}
+\renewcommand{\sectionmark}[1]{\markright{\thesection. #1}}
+\fancyfoot{} % clear all footer fields
+\fancyfoot[C]{\thepage}
+
+\begin{document}
+
+%%%%%%%%%%%%%%%%%% TITLEPAGE %%%%%%%%%%%%%
+\begin{titlepage}
+
+ \begin{center}
+   \parbox[t]{9cm}{
+     \begin{wrapfigure}{l}{2cm}
+        \includegraphics[width=2cm]{./images/MUIlogo-2.png}
+      \end{wrapfigure}
+      \parbox[t]{7.8cm}{
+      \vspace{0.4cm}
+      \raggedright
+      \normalsize
+      Bioinformatics Group,\\
+      Division Molecular Pathophysiology,\\
+      Biocenter, Medical University Innsbruck\\
+      Innrain 80-82, 6020 Innsbruck, Austria\\
+      \noindent\rule[1ex]{\linewidth}{1pt}
+      }
+    }
+  \end{center}
+\vspace{6.5cm}
+    \begin{center}
+     \Large
+     TITLE: CHANGE ME
+    \end{center}
+
+\vspace{1.5cm}
+    \begin{center}
+     \large
+
+    %Author
+     WHOEVER DID ANALYZE THIS THING
+    \end{center}
+
+\vspace{6.5cm}
+   \vfill
+   \begin{center}
+     \normalsize
+     Innsbruck, \today \\
+   \end{center}
+\end{titlepage}
+
+
+%\maketitle
+
+\pagebreak
+
+  \pagenumbering{roman}
+% \tableofcontents{}
+%  \listoffigures{}
+%  \listoftables{}
+  \pagebreak
+
+
+  \setcounter{secnumdepth}{0}
+
+  \setcounter{secnumdepth}{3}
+
+  \pagenumbering{arabic}
+
+  \setcounter{page}{1}
+
+%% Preprocessing
+\include{rawdata-preprocessing}
+%\include{rawdata-preprocessing-gene-st}  % that's for the newer ST microarrays from Affymetrix
+
+%% Differential expression analyis
+\include{diffexp}
+
+%% References
+\bibliography{bib/references}
+\bibliographystyle{plain}
+
+\end{document}
+
